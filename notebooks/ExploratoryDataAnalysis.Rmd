@@ -1,0 +1,381 @@
+---
+title: "Exploratory Data Analysis for ML Regression Problem"
+author: "Andre Rizzo"
+date: "01/2022"
+output: html_document
+---
+
+```{r include=FALSE}
+# Load libraries
+#library(readr)
+library(here)
+library(caret)
+library(Hmisc) #For describe()
+library(pastecs) #For stat.desc()
+library(car) #For qqPlot
+library(PerformanceAnalytics)
+library(caret) #For BoxCoxTrans and filterVarImp
+library(e1071) #For BoxCoxTrans
+library(normtest) #For ad.test and others
+library(bestNormalize) #For OrderNorm and Yeo-Johnson transformations
+library(ggplot2)
+library(CORElearn) #For Relief
+library(randomForest)
+library(RSQLite)
+library(DBI)
+library(outForest)
+```
+
+<br/>
+
+#### **Import MERCEDES dataframe**
+
+```{r include=FALSE}
+
+db_connection = dbConnect(drv = SQLite(), dbname = here("data", "processed", "used_cars.db"))
+
+res <- dbSendQuery(db_connection, "SELECT * FROM merc")
+df = dbFetch(res)
+
+dbDisconnect(db_connection)
+```
+
+<br/>
+
+#### **Show the very first 10 lines from the dataset**
+
+```{r echo=FALSE}
+head(df, n = 10)
+```
+
+<br/>
+
+#### **Show the very last 10 lines from the dataset**
+
+```{r echo=FALSE}
+tail(df, n = 10)
+```
+
+<br/>
+
+#### **Criar base de treinamento e base de testes**
+
+```{r include=FALSE}
+index = createDataPartition(df$price, p = 0.70, list = FALSE)
+df_train = df[index, ]
+df_test = df[-index, ]
+
+# Criar uma cópia dos dataframes
+df_train_original = df_train
+df_test_original = df_test
+
+# Salvar as bases
+# saveRDS(df_train_original, here("data", "processed", "merc_train.rds"))
+# saveRDS(df_train_original, here("data", "processed", "merc_test.rds"))
+
+```
+
+Utilizou-se 70% dos dados para base de treinamento e 30% para teste.
+
+<br/>
+
+
+#### **Verificar a estrutura do dataset**
+
+```{r echo=FALSE}
+# Verificar a estrutura do dataset
+str(df_train)
+```
+
+
+
+##### ***Análise***
+
+-   A base de treinamento é composta por 9 variáveis.
+
+-   Cada variável possui 9186 observações.
+
+-   Entre as 9 variáveis temos:
+
+    -   3 qualitativas
+    -   6 quantitativas
+
+</br>
+
+
+#### **Análise numérica da base de treinamento**  
+
+```{r echo=FALSE}
+Hmisc::describe(df_train, tabular = TRUE)
+```
+
+</br>
+
+
+#### **Organizando as variáveis**  
+
+```{r echo=FALSE}
+# Separando as variáveis quantitativas das variáveis qualitativas
+
+var_class = lapply(df_train,class)
+
+vars_categoricas = NULL
+vars_continuas = NULL
+vars_discretas = NULL
+#vars_todas = NULL
+
+for (a in 1:length(var_class)){
+  if (var_class[a] == "character"){
+    vars_categoricas = c(vars_categoricas, names(var_class[a]))
+  } else if (var_class[a] == "numeric" ){
+    vars_continuas = c(vars_continuas, names(var_class[a]))
+  } else {
+    vars_discretas = c(vars_discretas, names(var_class[a]))
+  }
+} 
+
+```
+
+<br/>
+
+##### **Variáveis contínuas**  
+
+```{r echo=FALSE}
+#formattable::formattable(as.data.frame(vars_numericas),
+#                        align = c("l"))
+
+print(vars_continuas)
+```
+
+<br/>
+
+
+##### **Variáveis discretas**  
+
+```{r echo=FALSE}
+#formattable::formattable(as.data.frame(vars_numericas),
+#                        align = c("l"))
+
+print(vars_discretas)
+```
+
+</br>
+
+##### **Variáveis qualitativas**
+
+```{r echo=FALSE}
+#formattable::formattable(as.data.frame(vars_categoricas),
+#                         align = c("l"))
+print(vars_categoricas)
+
+```
+
+</br>
+
+#### **Análise das variáveis qualitativas**  
+
+```{r}
+
+for (a in vars_categoricas){
+  tabela = table(a)
+  
+
+}
+    
+```
+
+
+
+```{r echo=FALSE}
+# Estudo gráfico das variáveis qualitativas
+
+for (a in vars_categoricas){
+  print(ggplot(df_train, aes_string(a)) +
+  geom_bar(fill = "red") +
+  ggtitle(paste("Variable",a)) +
+  theme(plot.title = element_text(hjust = 0.5)))
+}
+
+```
+
+</br>
+
+#### **Análise gráfica das variáveis contínuas**
+
+```{r echo=FALSE}
+# Estudo gráfico das variáveis quantitativas
+
+for (a in vars_continuas){
+  print(paste("VARIABLE ", toupper(a)))
+  
+  print(ggplot(df_train, aes_string(a)) +
+  geom_histogram(fill = "red", bins = 25) +
+  ggtitle(paste("Histogram - Variable",a)) +
+  scale_x_discrete() +
+  theme(plot.title = element_text(hjust = 0.5)))
+
+  print(ggplot(df_train, aes_string(a)) +
+  geom_density(fill = "lightyellow") +
+  ggtitle(paste("Density Plot - Variable",a)) +
+  theme(plot.title = element_text(hjust = 0.5)))
+
+  print(ggplot(df_train, aes_string(a)) +
+  geom_boxplot(fill = "lightblue") +
+  ggtitle(paste("Boxplot - Variable",a)) +
+  theme(plot.title = element_text(hjust = 0.5)))
+  
+}
+
+```
+
+
+
+##### *Numerical Normality Test*  
+```{r}
+
+for (aux in vars_continuas){
+  qqnorm(df_train[,aux], main = paste("Normal Q-Q Plot for", aux))
+  qqline(df_train[,aux])
+  set.seed(123)
+  df_train_sample = sample(x = df_train[,aux], size = 5000, replace = FALSE) 
+  print(aux)
+  print(shapiro.test(df_train_sample))
+}
+
+
+```
+> If p-value is greater than 0.05 then we can consider that the variable has a Normal distribution**  
+
+<br/>
+
+
+
+#### *Detecção de Outliers*  
+
+```{r eval=FALSE, include=FALSE}
+
+
+for (aux in vars_continuas){
+  k = 3
+  cut_off = IQR(df_train[,aux]) * k
+  q25 = quantile(df_train[,aux], probs = 0.25)
+  q75 = quantile(df_train[,aux], probs = 0.75)
+  
+  lim_inf = q25 - cut_off
+  lim_sup = q75 + cut_off
+  
+  outlier_candidate = which(df_train[,aux] < lim_inf) + which(df_train[,aux] > lim_sup)
+  outlier_candidate = sort(outlier_candidate)
+  
+  print("----------------------------------------------------------------------------------")
+  print(paste("VARIÁVEL",aux))
+  print(outlier_candidate)
+
+}
+
+```
+
+
+```{r}
+
+out = outForest(data = df_train, replace = "no", seed = 123)
+summary(out)
+formattable::formattable(as.data.frame(outliers(out)))
+plot(out, what = "scores")
+
+
+```
+
+#### *Análise Bivariada*  
+
+```{r}
+
+
+
+```
+
+
+##### *Comentários*
+
+-   **VARIÁVEL MODEL**
+
+    -   Descrição: Representa o modelo do veículo.
+    -   Variável independente.
+    -   Tipo: Variável qualitativa nominal.
+    -   Valores faltantes: Não possui
+    -   Outliers: N/A
+    -   Alta cardinalidade: Não possui. Foram encontrados 26 valores distintos, ou seja, menos de 1% do total.
+    -   Tipo de distribuição: N/A
+
+
+-   **VARIÁVEL YEAR**
+
+    -   Representa o ano modelo do veículo.
+    -   Variável independente.
+    -   É uma variável quantitativa.
+    -   Não apresenta valores faltantes.
+    -   Os veiculos mais antigo negociados foram fabricados em 1997 e os mais novos em 2020.
+    -   A maior parte dos veículos negociados foram fabricados em 2019 (2235).
+    -   Metade dos dos veículos negociados foram fabricados até 2017 e 90% deixaram a fábrica até 2019.
+
+    -   *Análise gráfica*
+
+        -   Observa-se grande assimetria esquerda com a grande amioria das observações concentradas entre 2013 e 2020.
+        -   Há indícios da presença de outliers que precisam ser estudadas.
+        -   As observações não podem ser modeladas por nenhuma distribuição conhecida.  
+
+-   **PRICE**
+
+    -   Representa o valor de venda do veículo em USD.
+    -   [Variável DEPENDENTE]{.ul}.
+    -   É uma variável quantitativa.
+    -   Não apresenta valores faltantes.
+    -   Os veículos da amostra possuem um preço médio de venda de USD 22909, tendo como mediana USD 20190, o que é um indicativo de assimetria na distribuição amostral.
+    -   Observou-se um valor mínimo USD1699 e um valor máximo de USD137995.
+    -   É necessário avaliar a presença ou não de outliers na amostra.
+
+-   **TRANSMISSION**
+
+    -   Representa o tipo de transmissão do veículo, podendo ser automática, manual e semiautomática.
+    -   Variável independente.
+    -   É uma variável qualitativa nominal.
+    -   Não apresenta valores faltantes.
+    -   Possui 3 valores distintos, ou seja, muito menos de 1% do total, não havendo a ocorrência de problemas relativos à cardinalidade.
+    -   A maioria dos veículos vendidos possuem câmbio manual (40,5%), seguido daqueles com câmbio semiautomático (34,1%). Os veículos com câmbio automático representam a menor parte do veículos vendidos (25,3%).
+
+-   **MILEAGE**
+
+    -   Representa a quilometragem do veículo.
+    -   Variável independente.
+    -   É uma variável quantitativa.
+    -   Não apresenta valores faltantes.
+
+-   **FUELTYPE**
+
+    -   Representa o tipo de combustível utilizado pelo veículo podendo ser diesel, híbrido ou gasolina.
+    -   Variável independente.
+    -   É uma variável qualitativa nominal.
+    -   Não apresenta valores faltantes.
+
+-   **TAX**
+
+    -   Representa o total de taxas (em USD) a serem pagas anualmente.
+    -   Variável independente.
+    -   É uma variável quantitativa.
+    -   Não apresenta valores faltantes.
+
+-   **MPG**
+
+    -   Representa o número de milhas que o automóvel percorre por galão de combustível.
+    -   Variável independente.
+    -   É uma variável quantitativa.
+    -   Não apresenta valores faltantes.
+
+-   **ENGINESIZE**
+
+    -   Representa a cilindrada do motor.
+    -   Variável independente.
+    -   É uma variável quantitativa.
+    -   Não apresenta valores faltantes.
+
+<br/>
